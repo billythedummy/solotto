@@ -1,0 +1,2 @@
+cluster = "localnet"
+wallet = "/home/dhy1996/.config/solana/id.json"
