@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use solana_program::system_instruction::transfer;
 
-const MAX_PLAYERS: u16 = 1000;
+const MAX_PLAYERS: u16 = 100;
 
 /// 0.02 SOL
 const TICKET_PRICE_LAMPORTS: u64 = 20_000_000;
@@ -22,7 +22,7 @@ pub mod solotto {
         pub authority: Pubkey,
 
         /// Players currently in the pot
-        pub players: [Pubkey; 1000], // const expr cant be parsed by anchor idl generation
+        pub players: [Pubkey; 100], // const expr cant be parsed by anchor idl generation
 
         /// How many players in `players`
         pub n_players: u16,
@@ -60,7 +60,7 @@ pub mod solotto {
                 return Err(LottoError::NotEnoughPlayers.into());
             }
             let winner = self.players[rand(self.n_players) as usize];
-            transfer(ctx.program_id, &winner, calc_payout(self.n_players));
+            transfer(&get_state_address(&ctx.program_id), &winner, calc_payout(self.n_players));
             self.is_ongoing = false;
             Ok(())
         }
@@ -76,26 +76,25 @@ pub mod solotto {
                 // either the state account or the program itself as authority 
                 return Err(LottoError::MaxPlayers.into());
             }
-            transfer(ctx.accounts.buyer.key, ctx.program_id, TICKET_PRICE_LAMPORTS);
+            transfer(&ctx.accounts.buyer.key, &get_state_address(&ctx.program_id), TICKET_PRICE_LAMPORTS);
             self.n_players += 1;
             Ok(())
         }
     }
 }
 
-/*
-fn is_auth_or_pool(auth: Pubkey, ctx: &Context<Auth>) -> Result<()> {
-    let caller = ctx.accounts.authority.key;
-    if let Ok(()) = is_self(*caller, ctx) {
-        return Ok(());
-    }
-    is_same_account(auth, *caller)
+/// IMPORTANT!!! THIS IS SUPER UNSAFE AND LIFTED STRAIGHT FROM THE ANCHOR SRC CODE. DO NOT DO SHIT LIKE THIS
+/// IF ANCHOR CHANGES THE PROGRAM_STATE_SEED THIS WILL NO LONGER WORK AND YOU WILL LOSE ALL YOUR LAMPORTS
+/// Only resorted to this because I decided to use #[state(zero_copy)] which is super experimental
+/// and unsupported. Could not pass the state AccountInfo as a ProgramState nor call ProgramState::<Pool>::address()
+/// because zero_copy state does not implement AccountSer/Deserialize
+fn get_state_address(program_id: &Pubkey) -> Pubkey {
+    const PROGRAM_STATE_SEED: &str = "unversioned";
+    let (base, _nonce) = Pubkey::find_program_address(&[], program_id);
+    let seed = PROGRAM_STATE_SEED;
+    let owner = program_id;
+    Pubkey::create_with_seed(&base, seed, owner).unwrap()
 }
-
-fn is_self(k: Pubkey, ctx: &Context<Auth>) -> Result<()> {
-    is_same_account(k, ProgramState::address(ctx.program_id))
-}
-*/
 
 fn is_same_account(k1: Pubkey, k2: Pubkey) -> Result<()> {
     if k1 != k2 {
@@ -147,7 +146,7 @@ pub struct BuyTicket<'info> {
 // From the anchor docs:
 // `signer` attr enforces that the account corresponding to this field signed the transaction
 //
-// Any instruction handler that has this struct as its Context is guaranteed to have
+// Take Auth as example. Any instruction handler that has Auth as its Context is guaranteed to have
 // the rpc/transaction signed by the `authority` account. So, to check identity, you can simply
 // compare this AccountInfo's public key to the public key of the desired identity.
 //
