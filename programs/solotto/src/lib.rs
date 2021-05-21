@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use solana_program::system_instruction::transfer;
 
-const MAX_PLAYERS: u16 = 100;
+const MAX_PLAYERS: u16 = 20;
 
 /// 0.02 SOL
 const TICKET_PRICE_LAMPORTS: u64 = 20_000_000;
@@ -16,13 +16,13 @@ const POOL_CUT: f64 = 0.01;
 pub mod solotto {
     use super::*;
 
-    #[state(zero_copy)]
+    #[state]
     pub struct Pool {
         /// Creator of this program, the only one authorized to stop the game and pay out
         pub authority: Pubkey,
 
         /// Players currently in the pot
-        pub players: [Pubkey; 100], // const expr cant be parsed by anchor idl generation
+        pub players: [Pubkey; 20], // const expr cant be parsed by anchor idl generation
 
         /// How many players in `players`
         pub n_players: u16,
@@ -32,11 +32,13 @@ pub mod solotto {
     }
 
     impl Pool {
-        pub fn new(&mut self, ctx: Context<Auth>) -> Result<()> {
-            self.authority = *ctx.accounts.authority.key;
-            self.n_players = 0;
-            self.is_ongoing = false;
-            Ok(())
+        pub fn new(ctx: Context<Auth>) -> Result<Self> {
+            Ok(Self {
+                authority: *ctx.accounts.authority.key,
+                players: [Pubkey::default(); 20],
+                n_players: 0,
+                is_ongoing: false,
+            })
         }
 
         /// Starts a new game
@@ -60,7 +62,8 @@ pub mod solotto {
                 return Err(LottoError::NotEnoughPlayers.into());
             }
             let winner = self.players[rand(self.n_players) as usize];
-            transfer(&get_state_address(&ctx.program_id), &winner, calc_payout(self.n_players));
+            let pool_addr = ProgramState::<Pool>::address(&ctx.program_id);
+            transfer(&pool_addr, &winner, calc_payout(self.n_players));
             self.is_ongoing = false;
             Ok(())
         }
@@ -76,24 +79,14 @@ pub mod solotto {
                 // either the state account or the program itself as authority 
                 return Err(LottoError::MaxPlayers.into());
             }
-            transfer(&ctx.accounts.buyer.key, &get_state_address(&ctx.program_id), TICKET_PRICE_LAMPORTS);
+            let pool = ctx.accounts.state.to_account_info();
+            self.players[self.n_players as usize] = *ctx.accounts.buyer.key;
             self.n_players += 1;
+            **ctx.accounts.buyer.try_borrow_mut_lamports()? -= TICKET_PRICE_LAMPORTS;
+            **pool.try_borrow_mut_lamports()? += TICKET_PRICE_LAMPORTS;
             Ok(())
         }
     }
-}
-
-/// IMPORTANT!!! THIS IS SUPER UNSAFE AND LIFTED STRAIGHT FROM THE ANCHOR SRC CODE. DO NOT DO SHIT LIKE THIS
-/// IF ANCHOR CHANGES THE PROGRAM_STATE_SEED THIS WILL NO LONGER WORK AND YOU WILL LOSE ALL YOUR LAMPORTS
-/// Only resorted to this because I decided to use #[state(zero_copy)] which is super experimental
-/// and unsupported. Could not pass the state AccountInfo as a ProgramState nor call ProgramState::<Pool>::address()
-/// because zero_copy state does not implement AccountSer/Deserialize
-fn get_state_address(program_id: &Pubkey) -> Pubkey {
-    const PROGRAM_STATE_SEED: &str = "unversioned";
-    let (base, _nonce) = Pubkey::find_program_address(&[], program_id);
-    let seed = PROGRAM_STATE_SEED;
-    let owner = program_id;
-    Pubkey::create_with_seed(&base, seed, owner).unwrap()
 }
 
 fn is_same_account(k1: Pubkey, k2: Pubkey) -> Result<()> {
@@ -105,6 +98,7 @@ fn is_same_account(k1: Pubkey, k2: Pubkey) -> Result<()> {
 
 /// Generates a "random" number in [0, max)
 /// there's no RNG available, use clock as source of entropy
+/// TODO 
 fn rand(_max: u16) -> u16 {
     0
 }
@@ -137,8 +131,9 @@ pub struct Payout<'info> {
 
 #[derive(Accounts)]
 pub struct BuyTicket<'info> {
-    #[account(signer)]
+    #[account(signer, mut)]
     buyer: AccountInfo<'info>,
+    state: ProgramState<'info, Pool>
 }
 
 // More on the signer attribute since I sometimes get confused

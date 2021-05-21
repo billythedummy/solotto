@@ -12,8 +12,8 @@ async function createWallet(program, keyPair) {
     anchor.web3.SystemProgram.createAccount({
       fromPubkey: program.provider.wallet.publicKey,
       newAccountPubkey: keyPair.publicKey,
-      space: 8 + 8,
-      lamports: 20000000,
+      space: 0,
+      lamports: 25000000,
       programId: program.programId,
     })
   );
@@ -38,7 +38,7 @@ describe('solotto', () => {
     });
   });
 
-  it('Double start', async () => {
+  it('Start', async () => {
     await program.state.rpc.startGame({
       accounts: {
         authority
@@ -47,19 +47,23 @@ describe('solotto', () => {
   });
 
   it('1 person game', async () => {
-
     await createWallet(program, buyer);
     let buyer_info = await program.provider.connection.getAccountInfo(buyer.publicKey);
     console.log(buyer_info.lamports);
 
+    const state_address = await program.state.address();
     await program.state.rpc.buyTicket({
       accounts: {
-        buyer: buyer.publicKey
+        buyer: buyer.publicKey,
+        state: state_address,
       },
       signers: [buyer]
     });
 
     buyer_info = await program.provider.connection.getAccountInfo(buyer.publicKey);
     console.log(buyer_info.lamports);
+    state = await program.provider.connection.getAccountInfo(state_address);
+    console.log(await program.state());
+    console.log(state.lamports);
   });
 });
