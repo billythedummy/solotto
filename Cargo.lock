@@ -18,8 +18,7 @@ dependencies = [
 [[package]]
 name = "anchor-attribute-access-control"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c20e8ba8753385c6f992e74dbb052f75a5165fd25a6be8e8571087bfb2a80fc"
+source = "git+https://github.com/project-serum/anchor.git?branch=master#74424fed7ba6cfea2e21051129d44479e95e6d02"
 dependencies = [
  "anchor-syn",
  "anyhow",
@@ -32,8 +31,7 @@ dependencies = [
 [[package]]
 name = "anchor-attribute-account"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce80bb1dc2f80f8aebe46f93fff8e6d2be5136307e0667b75f9fbf8a8ce1235e"
+source = "git+https://github.com/project-serum/anchor.git?branch=master#74424fed7ba6cfea2e21051129d44479e95e6d02"
 dependencies = [
  "anchor-syn",
  "anyhow",
@@ -45,8 +43,7 @@ dependencies = [
 [[package]]
 name = "anchor-attribute-error"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95448240895a408b223d9c5975f9aadfaae3534465e4b6cde948e773663862d8"
+source = "git+https://github.com/project-serum/anchor.git?branch=master#74424fed7ba6cfea2e21051129d44479e95e6d02"
 dependencies = [
  "anchor-syn",
  "proc-macro2",
@@ -57,8 +54,7 @@ dependencies = [
 [[package]]
 name = "anchor-attribute-event"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e294226e105d5565ad69ac46d506c7ceabe297f36db4978a63cd53f63da057df"
+source = "git+https://github.com/project-serum/anchor.git?branch=master#74424fed7ba6cfea2e21051129d44479e95e6d02"
 dependencies = [
  "anchor-syn",
  "anyhow",
@@ -70,8 +66,7 @@ dependencies = [
 [[package]]
 name = "anchor-attribute-interface"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a550c949cbf388ed3abcb3247d34ad7d7f1708e06a5d11812e54e1210e57188"
+source = "git+https://github.com/project-serum/anchor.git?branch=master#74424fed7ba6cfea2e21051129d44479e95e6d02"
 dependencies = [
  "anchor-syn",
  "anyhow",
@@ -84,8 +79,7 @@ dependencies = [
 [[package]]
 name = "anchor-attribute-program"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e60348c1d1f36a165bf7703891d781241926292666f4e86fddb7476817cce75c"
+source = "git+https://github.com/project-serum/anchor.git?branch=master#74424fed7ba6cfea2e21051129d44479e95e6d02"
 dependencies = [
  "anchor-syn",
  "anyhow",
@@ -97,8 +91,7 @@ dependencies = [
 [[package]]
 name = "anchor-attribute-state"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1216c766013ced9f5cac74fd100225346a4742c71c494ea3eb4d4ce92c28df35"
+source = "git+https://github.com/project-serum/anchor.git?branch=master#74424fed7ba6cfea2e21051129d44479e95e6d02"
 dependencies = [
  "anchor-syn",
  "anyhow",
@@ -110,8 +103,7 @@ dependencies = [
 [[package]]
 name = "anchor-derive-accounts"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f88491a2d2e5a17f4d4fc4ff146dd64024266f1e7d044ef8377f4aaee9b24d9f"
+source = "git+https://github.com/project-serum/anchor.git?branch=master#74424fed7ba6cfea2e21051129d44479e95e6d02"
 dependencies = [
  "anchor-syn",
  "anyhow",
@@ -123,8 +115,7 @@ dependencies = [
 [[package]]
 name = "anchor-lang"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "429e4ee9349bbd6b403e6a2f31eab133587bf1d5760b6ae6331fb0081836605d"
+source = "git+https://github.com/project-serum/anchor.git?branch=master#74424fed7ba6cfea2e21051129d44479e95e6d02"
 dependencies = [
  "anchor-attribute-access-control",
  "anchor-attribute-account",
@@ -144,8 +135,7 @@ dependencies = [
 [[package]]
 name = "anchor-syn"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6debd72f491165cf4b5f2507d6781080ad57959072e6dbbee54b0f0ca7fccaef"
+source = "git+https://github.com/project-serum/anchor.git?branch=master#74424fed7ba6cfea2e21051129d44479e95e6d02"
 dependencies = [
  "anyhow",
  "bs58",

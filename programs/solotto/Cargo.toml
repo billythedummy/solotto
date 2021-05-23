@@ -15,5 +15,5 @@ cpi = ["no-entrypoint"]
 default = []
 
 [dependencies]
-anchor-lang = "0.5.0"
+anchor-lang = { git = "https://github.com/project-serum/anchor.git", branch = "master" }
 solana-program = "1.6.9"

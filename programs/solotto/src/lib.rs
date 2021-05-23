@@ -1,5 +1,4 @@
 use anchor_lang::prelude::*;
-use solana_program::system_instruction::transfer;
 
 const MAX_PLAYERS: u16 = 20;
 
@@ -9,7 +8,7 @@ const TICKET_PRICE_LAMPORTS: u64 = 20_000_000;
 /// Percentage of the pool the program keeps for maintenance/profit
 const POOL_CUT: f64 = 0.01;
 
-// Note: ALL methods and fns in a #[program] mod are solana instruction handlers 
+// Note: ALL methods and fns in a #[program] mod are solana instruction handlers
 // and must include Context<> param, else the custom attribute will panic
 // All helper fns must therefore be outside this mod
 #[program]
@@ -18,7 +17,7 @@ pub mod solotto {
 
     #[state]
     pub struct Pool {
-        /// Creator of this program, the only one authorized to stop the game and pay out
+        /// Creator of this program, the only one authorized to start and stop the game and pay out
         pub authority: Pubkey,
 
         /// Players currently in the pot
@@ -61,22 +60,21 @@ pub mod solotto {
             if self.n_players == 0 {
                 return Err(LottoError::NotEnoughPlayers.into());
             }
-            let winner = self.players[rand(self.n_players) as usize];
-            let pool_addr = ProgramState::<Pool>::address(&ctx.program_id);
-            transfer(&pool_addr, &winner, calc_payout(self.n_players));
+            let payout = calc_payout(self.n_players);
+            let pool = ctx.accounts.state.to_account_info();
+            **pool.try_borrow_mut_lamports()? -= payout;
+            **ctx.accounts.winner.try_borrow_mut_lamports()? += payout;
             self.is_ongoing = false;
+            self.n_players = 0;
             Ok(())
         }
-        
+
         /// Buy a lottery ticket
         pub fn buy_ticket(&mut self, ctx: Context<BuyTicket>) -> Result<()> {
             if !self.is_ongoing {
                 return Err(LottoError::NoGameOngoing.into());
             }
             if self.n_players == MAX_PLAYERS {
-                // originally wanted to stop the game and start a new one here
-                // but haven't figured out how to CPI the program itself using
-                // either the state account or the program itself as authority 
                 return Err(LottoError::MaxPlayers.into());
             }
             let pool = ctx.accounts.state.to_account_info();
@@ -98,7 +96,7 @@ fn is_same_account(k1: Pubkey, k2: Pubkey) -> Result<()> {
 
 /// Generates a "random" number in [0, max)
 /// there's no RNG available, use clock as source of entropy
-/// TODO 
+/// TODO
 fn rand(_max: u16) -> u16 {
     0
 }
@@ -126,14 +124,19 @@ pub struct Auth<'info> {
 pub struct Payout<'info> {
     #[account(signer)]
     authority: AccountInfo<'info>,
+    state: ProgramState<'info, Pool>,
+    #[account(mut)]
+    winner: AccountInfo<'info>,
+    system_program: AccountInfo<'info>,
     clock: Sysvar<'info, Clock>,
+    recent_block_hashes: Sysvar<'info, RecentBlockhashes>,
 }
 
 #[derive(Accounts)]
 pub struct BuyTicket<'info> {
     #[account(signer, mut)]
     buyer: AccountInfo<'info>,
-    state: ProgramState<'info, Pool>
+    state: ProgramState<'info, Pool>,
 }
 
 // More on the signer attribute since I sometimes get confused
@@ -152,6 +155,7 @@ pub struct BuyTicket<'info> {
 // the access_control fn to make sure that the call was indeed signed by me.
 
 /// ERROR STRUCTS
+
 #[error]
 pub enum LottoError {
     #[msg("Not enough players in the pool")]
