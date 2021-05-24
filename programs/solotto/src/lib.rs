@@ -1,4 +1,7 @@
 use anchor_lang::prelude::*;
+use solana_program::program::invoke;
+use solana_program::system_instruction::transfer;
+use solana_program::system_program;
 
 const MAX_PLAYERS: u16 = 20;
 
@@ -80,8 +83,8 @@ pub mod solotto {
             let pool = ctx.accounts.state.to_account_info();
             self.players[self.n_players as usize] = *ctx.accounts.buyer.key;
             self.n_players += 1;
-            **ctx.accounts.buyer.try_borrow_mut_lamports()? -= TICKET_PRICE_LAMPORTS;
-            **pool.try_borrow_mut_lamports()? += TICKET_PRICE_LAMPORTS;
+            let tx = transfer(ctx.accounts.buyer.key, pool.key, TICKET_PRICE_LAMPORTS);
+            invoke(&tx, &[ctx.accounts.buyer.clone(), pool.clone(), ctx.accounts.system_prog.clone()])?;
             Ok(())
         }
     }
@@ -137,6 +140,7 @@ pub struct BuyTicket<'info> {
     #[account(signer, mut)]
     buyer: AccountInfo<'info>,
     state: ProgramState<'info, Pool>,
+    system_prog: AccountInfo<'info>,
 }
 
 // More on the signer attribute since I sometimes get confused

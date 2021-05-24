@@ -21,7 +21,7 @@ async function createWallet(program, keyPair, lamports) {
       newAccountPubkey: keyPair.publicKey,
       space: 0,
       lamports,
-      programId: program.programId,
+      programId: anchor.web3.SystemProgram.programId,
     })
   );
   await program.provider.send(tx, [keyPair]);
@@ -68,10 +68,11 @@ describe('solotto', () => {
       accounts: {
         buyer: buyer.publicKey,
         state: state_address,
+        systemProg: anchor.web3.SystemProgram.programId,
       },
       signers: [buyer]
-    })
-
+    });
+    
     buyer_info = await program.provider.connection.getAccountInfo(buyer.publicKey);
     assert.ok(buyer_info.lamports === buyer_funds - TICKET_PRICE);
 
