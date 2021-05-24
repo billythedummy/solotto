@@ -1,15 +1,17 @@
 use anchor_lang::prelude::*;
+use solana_program::hash::hash;
 use solana_program::program::invoke;
 use solana_program::system_instruction::transfer;
-use solana_program::system_program;
 
-const MAX_PLAYERS: u16 = 20;
+const MAX_PLAYERS: u16 = 32;
 
 /// 0.02 SOL
 const TICKET_PRICE_LAMPORTS: u64 = 20_000_000;
 
 /// Percentage of the pool the program keeps for maintenance/profit
-const POOL_CUT: f64 = 0.01;
+const POOL_CUT: f64 = 0.001;
+
+const SALT_DELIM: &str = ":";
 
 // Note: ALL methods and fns in a #[program] mod are solana instruction handlers
 // and must include Context<> param, else the custom attribute will panic
@@ -20,61 +22,93 @@ pub mod solotto {
 
     #[state]
     pub struct Pool {
-        /// Creator of this program, the only one authorized to start and stop the game and pay out
-        pub authority: Pubkey,
-
-        /// Players currently in the pot
-        pub players: [Pubkey; 20], // const expr cant be parsed by anchor idl generation
+        /// Which state is the game in
+        pub game_state: GameState,
 
         /// How many players in `players`
         pub n_players: u16,
 
-        /// Is there a game currently ongoing
-        pub is_ongoing: bool,
+        /// Committed hash of the winner's seed
+        // anchor's JS IDL can't seem to handle the Hash Type, so just store it as bytes
+        pub commit: [u8; 32],
+
+        /// Creator of this program, the only one authorized to start and stop the game and pay out
+        pub authority: Pubkey,
+
+        /// Players currently in the pot
+        pub players: [Pubkey; 32], // const expr cant be parsed by anchor idl generation
     }
 
     impl Pool {
         pub fn new(ctx: Context<Auth>) -> Result<Self> {
             Ok(Self {
-                authority: *ctx.accounts.authority.key,
-                players: [Pubkey::default(); 20],
+                game_state: GameState::Inactive,
                 n_players: 0,
-                is_ongoing: false,
+                commit: [0; 32],
+                authority: *ctx.accounts.authority.key,
+                players: [Pubkey::default(); MAX_PLAYERS as usize],
             })
         }
 
         /// Starts a new game
         #[access_control(is_same_account(self.authority, *ctx.accounts.authority.key))]
-        pub fn start_game(&mut self, ctx: Context<Auth>) -> Result<()> {
-            if self.is_ongoing {
+        pub fn start_game(&mut self, ctx: Context<Auth>, commit: [u8; 32]) -> Result<()> {
+            if self.game_state != GameState::Inactive {
                 return Err(LottoError::GameOngoing.into());
             }
-            self.is_ongoing = true;
+            self.commit = commit;
+            self.game_state = GameState::Ongoing;
             self.n_players = 0;
+            Ok(())
+        }
+
+        #[access_control(is_same_account(self.authority, *ctx.accounts.authority.key))]
+        pub fn end_game(&mut self, ctx: Context<EndGame>, seed_gen: String) -> Result<()> {
+            if self.n_players == 0 {
+                return Err(LottoError::NotEnoughPlayers.into());
+            }
+            if self.game_state != GameState::Ongoing {
+                return Err(LottoError::NoGameOngoing.into());
+            }
+            if hash(seed_gen.as_ref()).to_bytes() != self.commit {
+                return Err(LottoError::WrongWinningSeed.into());
+            }
+            let mut split = seed_gen.split(SALT_DELIM);
+            let s = match split.next() {
+                Some(s) => s,
+                None => return Err(LottoError::WrongWinningSeed.into()),
+            };
+            let winning_seed: u64 = s.parse()?;
+            let winning_index =
+                (winning_seed ^ ctx.accounts.clock.unix_timestamp as u64) % (self.n_players as u64);
+            // set index 0 or self.players to the winner's pubkey
+            self.players[0] = self.players[winning_index as usize];
+            self.game_state = GameState::Completed;
             Ok(())
         }
 
         /// Ends the game and pays out the lamports to one of the accounts in `players`
         #[access_control(is_same_account(self.authority, *ctx.accounts.authority.key))]
         pub fn payout(&mut self, ctx: Context<Payout>) -> Result<()> {
-            if !self.is_ongoing {
+            if self.game_state != GameState::Completed {
                 return Err(LottoError::NoGameOngoing.into());
             }
-            if self.n_players == 0 {
-                return Err(LottoError::NotEnoughPlayers.into());
+            if *ctx.accounts.winner.key != self.players[0] {
+                return Err(LottoError::WrongWinner.into());
             }
             let payout = calc_payout(self.n_players);
             let pool = ctx.accounts.state.to_account_info();
             **pool.try_borrow_mut_lamports()? -= payout;
             **ctx.accounts.winner.try_borrow_mut_lamports()? += payout;
-            self.is_ongoing = false;
+
+            self.game_state = GameState::Inactive;
             self.n_players = 0;
             Ok(())
         }
 
         /// Buy a lottery ticket
         pub fn buy_ticket(&mut self, ctx: Context<BuyTicket>) -> Result<()> {
-            if !self.is_ongoing {
+            if self.game_state != GameState::Ongoing {
                 return Err(LottoError::NoGameOngoing.into());
             }
             if self.n_players == MAX_PLAYERS {
@@ -83,8 +117,16 @@ pub mod solotto {
             let pool = ctx.accounts.state.to_account_info();
             self.players[self.n_players as usize] = *ctx.accounts.buyer.key;
             self.n_players += 1;
+            // have to do a CPI to SystemProgram because buyer is not owned by program
             let tx = transfer(ctx.accounts.buyer.key, pool.key, TICKET_PRICE_LAMPORTS);
-            invoke(&tx, &[ctx.accounts.buyer.clone(), pool.clone(), ctx.accounts.system_prog.clone()])?;
+            invoke(
+                &tx,
+                &[
+                    ctx.accounts.buyer.clone(),
+                    pool.clone(),
+                    ctx.accounts.system_prog.clone(),
+                ],
+            )?;
             Ok(())
         }
     }
@@ -97,11 +139,12 @@ fn is_same_account(k1: Pubkey, k2: Pubkey) -> Result<()> {
     Ok(())
 }
 
-/// Generates a "random" number in [0, max)
-/// there's no RNG available, use clock as source of entropy
-/// TODO
-fn rand(_max: u16) -> u16 {
-    0
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq)]
+pub enum GameState {
+    Inactive,
+    Ongoing,
+    /// winner has been determined but not yet paid out
+    Completed,
 }
 
 /// Calculates the amount to be paid out to the winner in lamports
@@ -124,15 +167,19 @@ pub struct Auth<'info> {
 }
 
 #[derive(Accounts)]
+pub struct EndGame<'info> {
+    #[account(signer)]
+    authority: AccountInfo<'info>,
+    clock: Sysvar<'info, Clock>,
+}
+
+#[derive(Accounts)]
 pub struct Payout<'info> {
     #[account(signer)]
     authority: AccountInfo<'info>,
     state: ProgramState<'info, Pool>,
     #[account(mut)]
     winner: AccountInfo<'info>,
-    system_program: AccountInfo<'info>,
-    clock: Sysvar<'info, Clock>,
-    recent_block_hashes: Sysvar<'info, RecentBlockhashes>,
 }
 
 #[derive(Accounts)]
@@ -142,21 +189,6 @@ pub struct BuyTicket<'info> {
     state: ProgramState<'info, Pool>,
     system_prog: AccountInfo<'info>,
 }
-
-// More on the signer attribute since I sometimes get confused
-//
-// From the anchor docs:
-// `signer` attr enforces that the account corresponding to this field signed the transaction
-//
-// Take Auth as example. Any instruction handler that has Auth as its Context is guaranteed to have
-// the rpc/transaction signed by the `authority` account. So, to check identity, you can simply
-// compare this AccountInfo's public key to the public key of the desired identity.
-//
-// In this case, we want to make sure that
-// only the creator (me) can call certain functions like payout(), so we save my public
-// key to the state struct upon program initialization and then compare it to
-// the `authority` field that comes in from any client's rpc call to payout() via
-// the access_control fn to make sure that the call was indeed signed by me.
 
 /// ERROR STRUCTS
 
@@ -173,4 +205,16 @@ pub enum LottoError {
 
     #[msg("Max players reached")]
     MaxPlayers,
+
+    #[msg("Winning seed is different from the one commited")]
+    WrongWinningSeed,
+
+    #[msg("Payout account is not the determined winner")]
+    WrongWinner,
+}
+
+impl From<core::num::ParseIntError> for Error {
+    fn from(_err: core::num::ParseIntError) -> Self {
+        LottoError::WrongWinningSeed.into()
+    }
 }

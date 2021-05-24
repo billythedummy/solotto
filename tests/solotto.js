@@ -1,4 +1,5 @@
 const anchor = require('@project-serum/anchor');
+const sjcl = require('sjcl');
 const assert = require("assert");
 
 const TICKET_PRICE = 20_000_000;
@@ -27,15 +28,33 @@ async function createWallet(program, keyPair, lamports) {
   await program.provider.send(tx, [keyPair]);
 }
 
+function hexToBytes(hex) {
+  for (var bytes = [], c = 0; c < hex.length; c += 2)
+  bytes.push(parseInt(hex.substr(c, 2), 16));
+  return bytes;
+}
+
 describe('solotto', () => {
 
   // Configure the client to use the local cluster.
   anchor.setProvider(anchor.Provider.env());
 
   const program = anchor.workspace.Solotto;
-  const authority_pair = program.provider.wallet.payer;
-  const authority = authority_pair.publicKey;
+  const authorityPair = program.provider.wallet.payer;
+  const authority = authorityPair.publicKey;
   const buyer = anchor.web3.Keypair.generate();
+  const buyer2 = anchor.web3.Keypair.generate();
+
+  async function startGame(winningSeed, salt) {
+    const commit = hexToBytes(sjcl.codec.hex.fromBits(
+      sjcl.hash.sha256.hash(winningSeed + salt)
+    ));
+    await program.state.rpc.startGame(commit, {
+      accounts: {
+        authority
+      }
+    });
+  }
 
   // Initialize
   it('Initialize', async () => {
@@ -47,61 +66,138 @@ describe('solotto', () => {
   });
 
   it('Start', async () => {
-    await program.state.rpc.startGame({
-      accounts: {
-        authority
-      }
-    });
+    await startGame(69, ":fsgasfdf");
   });
 
   it('1 person game', async () => {
-    const buyer_funds = 25000000;
-    await createWallet(program, buyer, buyer_funds);
-    let buyer_info = await program.provider.connection.getAccountInfo(buyer.publicKey);
-    assert.ok(buyer_info.lamports === buyer_funds);
+    const buyerFunds = 25000000;
+    await createWallet(program, buyer, buyerFunds);
+    let buyerInfo = await program.provider.connection.getAccountInfo(buyer.publicKey);
+    assert.ok(buyerInfo.lamports === buyerFunds);
 
-    const state_address = await program.state.address();
-    let pool = await program.provider.connection.getAccountInfo(state_address);
-    const pool_starting = pool.lamports;
+    const stateAddress = await program.state.address();
+    let pool = await program.provider.connection.getAccountInfo(stateAddress);
+    const poolStarting = pool.lamports;
 
     await program.state.rpc.buyTicket({
       accounts: {
         buyer: buyer.publicKey,
-        state: state_address,
+        state: stateAddress,
         systemProg: anchor.web3.SystemProgram.programId,
       },
       signers: [buyer]
     });
     
-    buyer_info = await program.provider.connection.getAccountInfo(buyer.publicKey);
-    assert.ok(buyer_info.lamports === buyer_funds - TICKET_PRICE);
+    buyerInfo = await program.provider.connection.getAccountInfo(buyer.publicKey);
+    assert.ok(buyerInfo.lamports === buyerFunds - TICKET_PRICE);
 
-    pool = await program.provider.connection.getAccountInfo(state_address);
-    assert.ok(pool.lamports === pool_starting + TICKET_PRICE);
+    pool = await program.provider.connection.getAccountInfo(stateAddress);
+    assert.ok(pool.lamports === poolStarting + TICKET_PRICE);
 
-    let state_struct = await program.state();
-    assert.ok(state_struct.nPlayers === 1);
-    assert.ok(state_struct.isOngoing === true);
-    assert.ok(state_struct.players[0].equals(buyer.publicKey));
+    let stateStruct = await program.state();
+    assert.ok(stateStruct.nPlayers === 1);
+    assert.ok(stateStruct.gameState.ongoing);
+    assert.ok(stateStruct.players[0].equals(buyer.publicKey));
+
+    await program.state.rpc.endGame(69 + ":fsgasfdf", {
+      accounts: {
+        authority,
+        clock: anchor.web3.SYSVAR_CLOCK_PUBKEY
+      },
+      // the call seems to have gone through without the signers array...
+      signers: [authorityPair]
+    });
+    stateStruct = await program.state();
+    assert.ok(stateStruct.gameState.completed);
 
     await program.state.rpc.payout({
       accounts: {
         authority,
-        state: state_address,
-        systemProgram: anchor.web3.SystemProgram.programId,
-        clock: anchor.web3.SYSVAR_CLOCK_PUBKEY,
-        recentBlockHashes: anchor.web3.SYSVAR_RECENT_BLOCKHASHES_PUBKEY,
+        state: stateAddress,
         winner: buyer.publicKey,
       },
-      signers: [authority_pair]
-    })
+      signers: [authorityPair]
+    });
 
-    state_struct = await program.state();
-    assert.ok(state_struct.nPlayers === 0);
-    assert.ok(state_struct.isOngoing === false);
+    stateStruct = await program.state();
+    assert.ok(stateStruct.nPlayers === 0);
+    assert.ok(stateStruct.gameState.inactive);
 
-    buyer_info = await program.provider.connection.getAccountInfo(buyer.publicKey);
-    assert.ok(buyer_info.lamports === 24_800_000);
+    buyerInfo = await program.provider.connection.getAccountInfo(buyer.publicKey);
+    assert.ok(buyerInfo.lamports === 24_980_000);
 
   });
+
+  it('2 person game', async () => {
+    const buyerFunds = 25000000;
+    await createWallet(program, buyer2, buyerFunds);
+    const stateAddress = await program.state.address();
+
+    const winningSeed = 45324545675435465;
+    const salt = ":fgsvgbhhgfdhffghsgafcsdvggerfeghjhhtg";
+    await startGame(winningSeed, salt);
+
+    let pool = await program.provider.connection.getAccountInfo(stateAddress);
+    const poolStarting = pool.lamports;
+
+    await program.state.rpc.buyTicket({
+      accounts: {
+        buyer: buyer.publicKey,
+        state: stateAddress,
+        systemProg: anchor.web3.SystemProgram.programId,
+      },
+      signers: [buyer]
+    });
+
+    await program.state.rpc.buyTicket({
+      accounts: {
+        buyer: buyer2.publicKey,
+        state: stateAddress,
+        systemProg: anchor.web3.SystemProgram.programId,
+      },
+      signers: [buyer2]
+    });
+
+    buyerInfo2 = await program.provider.connection.getAccountInfo(buyer2.publicKey);
+    assert.ok(buyerInfo2.lamports === buyerFunds - TICKET_PRICE);
+
+    pool = await program.provider.connection.getAccountInfo(stateAddress);
+    assert.ok(pool.lamports === poolStarting + 2*TICKET_PRICE);
+
+    let stateStruct = await program.state();
+    assert.ok(stateStruct.nPlayers === 2);
+    assert.ok(stateStruct.gameState.ongoing);
+
+    await program.state.rpc.endGame(winningSeed + salt, {
+      accounts: {
+        authority,
+        clock: anchor.web3.SYSVAR_CLOCK_PUBKEY
+      },
+      // the call seems to have gone through without the signers array...
+      signers: [authorityPair]
+    });
+
+    stateStruct = await program.state();
+    winner = stateStruct.players[0];
+
+    await program.state.rpc.payout({
+      accounts: {
+        authority,
+        state: stateAddress,
+        winner,
+      },
+      signers: [authorityPair]
+    });
+
+    buyerInfo = await program.provider.connection.getAccountInfo(buyer.publicKey);
+    buyerInfo2 = await program.provider.connection.getAccountInfo(buyer2.publicKey);
+
+    console.log(buyerInfo.lamports);
+    console.log(buyerInfo2.lamports);
+
+    stateStruct = await program.state();
+    assert.ok(stateStruct.nPlayers === 0);
+    assert.ok(stateStruct.gameState.inactive);
+  });
+
 });
