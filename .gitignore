@@ -8,3 +8,5 @@ target
 **/*.rs.bk
 
 .anchor
+
+*/node_modules/*

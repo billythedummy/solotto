@@ -64,14 +64,16 @@ pub mod solotto {
 
         #[access_control(is_same_account(self.authority, *ctx.accounts.authority.key))]
         pub fn end_game(&mut self, ctx: Context<EndGame>, seed_gen: String) -> Result<()> {
-            if self.n_players == 0 {
-                return Err(LottoError::NotEnoughPlayers.into());
-            }
             if self.game_state != GameState::Ongoing {
                 return Err(LottoError::NoGameOngoing.into());
             }
             if hash(seed_gen.as_ref()).to_bytes() != self.commit {
                 return Err(LottoError::WrongWinningSeed.into());
+            }
+            if self.n_players == 0 {
+                // no need for payout
+                self.game_state = GameState::Inactive;
+                return Ok(());
             }
             let mut split = seed_gen.split(SALT_DELIM);
             let s = match split.next() {
@@ -194,9 +196,6 @@ pub struct BuyTicket<'info> {
 
 #[error]
 pub enum LottoError {
-    #[msg("Not enough players in the pool")]
-    NotEnoughPlayers,
-
     #[msg("Game already started")]
     GameOngoing,
 

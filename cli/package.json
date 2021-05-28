@@ -1,0 +1,26 @@
+{
+  "name": "@billythedummy/solotto-cli",
+  "version": "1.0.0",
+  "description": "Admin CLI for initializing, starting and ending solotto games.",
+  "main": "src/cli.js",
+  "bin": {
+    "@billythedummy/solotto-cli": "bin/solotto",
+    "solotto-cli": "bin/solotto"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "arg": "^5.0.0",
+    "bn.js": "^5.2.0",
+    "esm": "^3.2.25",
+    "sjcl": "^1.0.8"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "keywords": []
+}
