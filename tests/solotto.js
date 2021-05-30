@@ -63,6 +63,9 @@ describe('solotto', () => {
         authority
       }
     });
+    const accounts = await program.provider.connection.getProgramAccounts(program.programId);
+    assert.ok(accounts.length === 1);
+    assert.ok(accounts[0].pubkey.equals(await program.state.address()));
   });
 
   it('Start', async () => {
@@ -198,6 +201,21 @@ describe('solotto', () => {
     stateStruct = await program.state();
     assert.ok(stateStruct.nPlayers === 0);
     assert.ok(stateStruct.gameState.inactive);
+  });
+
+  it('Delete', async () => {
+    const authBefore = await program.provider.connection.getAccountInfo(authority);
+    await program.state.rpc.del({
+      accounts: {
+        authority,
+        state: await program.state.address(),
+      },
+      signers: [authorityPair]
+    });
+    const authAfter = await program.provider.connection.getAccountInfo(authority);
+    // assert no such account error is thrown
+    program.state().catch((e) => assert.ok(e));
+    assert.ok(authAfter.lamports > authBefore.lamports);
   });
 
 });

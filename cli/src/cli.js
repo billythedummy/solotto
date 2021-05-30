@@ -8,20 +8,22 @@ const STATE_CMD = "state";
 const START_CMD = "start";
 const END_CMD = "end";
 const PAYOUT_CMD = "payout";
+const DEL_CMD = "del";
 
 const HANDLERS = {
   [INIT_CMD]: init,
   [STATE_CMD]: state,
   [START_CMD]: start,
   [END_CMD]: end,
-  [PAYOUT_CMD]: payout
+  [PAYOUT_CMD]: payout,
+  [DEL_CMD]: del
 };
 
 function usage() {
   console.log("Usage: solotto <PROGRAM_ID> <CMD> <CMD-ARGS>");
   console.log();
   console.log("CMD list:")
-  console.log(`${INIT_CMD}     Initializes the state struct. You can only call this once per program.`);
+  console.log(`${INIT_CMD}     Initializes the state account. Can only be called if state account doesn't already exist.`);
   console.log(`${STATE_CMD}    Prints the state account`);
   console.log(`${START_CMD}    Starts a new game. Args:`);
   console.log(`         - seed of the format '<NUMBER>:<RANDOM-SALT-STRING>'. YOU NEED THIS EXACT SAME STRING TO END THE GAME, MAKE SURE TO SAVE THIS`);
@@ -76,6 +78,7 @@ function hexToBytes(hex) {
 }
 
 function verifySeedFormat(seed) {
+  const MAX_SALT_LENGTH = 128;
   if (!seed) {
     console.log("No seed provided");
     return false;
@@ -86,6 +89,11 @@ function verifySeedFormat(seed) {
     return false;
   }
   const val = splitted[0];
+  const salt = splitted[1];
+  if (salt.length > MAX_SALT_LENGTH) {
+    console.log(`Please pick a salt of length ${MAX_SALT_LENGTH} or less`);
+    return false;
+  }
   try {
     new BN(val, 10);
     return true;
@@ -128,19 +136,13 @@ async function end(solotto, authority, seed) {
   console.log(`Game Ended. Tx hash: ${txHash}`);
 }
 
-async function payout(solotto, authority, winner) {
-  if (!winner) {
-    console.log("No winner pubkey provided");
+async function payout(solotto, authority) {
+  const state = await solotto.state();
+  if (!state.gameState.completed) {
+    console.log("Game not ended");
     return;
   }
-  let winnerPubkey;
-  try {
-    let bn = new BN(winner, 16);
-    winnerPubkey = new anchor.web3.PublicKey(bn);
-  } catch (e) {
-    console.log(`Invalid Pubkey '${winner}': ${e}. Should be in hex format.`);
-    return;
-  }
+  const winnerPubkey = state.players[0];
   console.log("Paying out...");
   const stateAddress = await solotto.state.address();
   const txHash = await solotto.state.rpc.payout({
@@ -151,6 +153,17 @@ async function payout(solotto, authority, winner) {
     }
   });
   console.log(`Winner paid. Tx hash: ${txHash}`);
+}
+
+async function del(solotto, authority) {
+  console.log("Deleting pool...");
+  const txHash = await solotto.state.rpc.del({
+    accounts: {
+      authority: authority.publicKey,
+      state: await solotto.state.address(),
+    }
+  });
+  console.log(`Pool deleted. Tx hash: ${txHash}`);
 }
 
 export async function cli(rawArgs) {

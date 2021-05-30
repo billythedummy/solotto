@@ -3,7 +3,7 @@ use solana_program::hash::hash;
 use solana_program::program::invoke;
 use solana_program::system_instruction::transfer;
 
-const MAX_PLAYERS: u16 = 32;
+const MAX_PLAYERS: u16 = 31;
 
 /// 0.02 SOL
 const TICKET_PRICE_LAMPORTS: u64 = 20_000_000;
@@ -12,6 +12,7 @@ const TICKET_PRICE_LAMPORTS: u64 = 20_000_000;
 const POOL_CUT: f64 = 0.001;
 
 const SALT_DELIM: &str = ":";
+const SALT_MAX_LEN: usize = 128;
 
 // Note: ALL methods and fns in a #[program] mod are solana instruction handlers
 // and must include Context<> param, else the custom attribute will panic
@@ -28,15 +29,18 @@ pub mod solotto {
         /// How many players in `players`
         pub n_players: u16,
 
-        /// Committed hash of the winner's seed
+        /// Committed hash of the winning seed
         // anchor's JS IDL can't seem to handle the Hash Type, so just store it as bytes
         pub commit: [u8; 32],
+        
+        /// Winning seed, revealed after game is completed
+        pub seed: Option<Seed>,
 
         /// Creator of this program, the only one authorized to start and stop the game and pay out
         pub authority: Pubkey,
 
         /// Players currently in the pot
-        pub players: [Pubkey; 32], // const expr cant be parsed by anchor idl generation
+        pub players: [Pubkey; 31], // const expr cant be parsed by anchor idl generation
     }
 
     impl Pool {
@@ -45,9 +49,28 @@ pub mod solotto {
                 game_state: GameState::Inactive,
                 n_players: 0,
                 commit: [0; 32],
+                // have to initialize with Some to allocate enough space for the account
+                seed: Some(Seed {
+                    val: 0,
+                    salt: ['x'; SALT_MAX_LEN].iter().collect(),
+                }),
                 authority: *ctx.accounts.authority.key,
                 players: [Pubkey::default(); MAX_PLAYERS as usize],
             })
+        }
+
+        /// Deletes the state account, transferring the funds to the authority
+        #[access_control(is_same_account(self.authority, *ctx.accounts.authority.key))]
+        pub fn del(&mut self, ctx: Context<Del>) -> Result<()> {
+            if self.game_state != GameState::Inactive {
+                return Err(LottoError::GameOngoing.into());
+            }
+            let pool = ctx.accounts.state.to_account_info();
+            let balance = pool.lamports();
+            **pool.try_borrow_mut_lamports()? = 0;
+            **ctx.accounts.authority.try_borrow_mut_lamports()? += balance;
+            *self = unsafe { std::mem::zeroed() };
+            Ok(())
         }
 
         /// Starts a new game
@@ -57,6 +80,7 @@ pub mod solotto {
                 return Err(LottoError::GameOngoing.into());
             }
             self.commit = commit;
+            self.seed = None;
             self.game_state = GameState::Ongoing;
             self.n_players = 0;
             Ok(())
@@ -83,7 +107,11 @@ pub mod solotto {
             let winning_seed: u64 = s.parse()?;
             let winning_index =
                 (winning_seed ^ ctx.accounts.clock.unix_timestamp as u64) % (self.n_players as u64);
-            // set index 0 or self.players to the winner's pubkey
+            self.seed = Some(Seed {
+                val: winning_seed,
+                salt: split.next().unwrap().into(),
+            });
+            // set index 0 of self.players to the winner's pubkey
             self.players[0] = self.players[winning_index as usize];
             self.game_state = GameState::Completed;
             Ok(())
@@ -149,6 +177,12 @@ pub enum GameState {
     Completed,
 }
 
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct Seed {
+    pub val: u64,
+    pub salt: String,
+}
+
 /// Calculates the amount to be paid out to the winner in lamports
 fn calc_payout(n_players: u16) -> u64 {
     let collected = n_players as u64 * TICKET_PRICE_LAMPORTS;
@@ -166,6 +200,13 @@ fn calc_payout(n_players: u16) -> u64 {
 pub struct Auth<'info> {
     #[account(signer)]
     authority: AccountInfo<'info>,
+}
+
+#[derive(Accounts)]
+pub struct Del<'info> {
+    #[account(signer)]
+    authority: AccountInfo<'info>,
+    state: ProgramState<'info, Pool>,
 }
 
 #[derive(Accounts)]
